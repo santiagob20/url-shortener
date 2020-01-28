@@ -25,6 +25,8 @@ public static string Encode(int i)
             return string.Join(string.Empty, s.Reverse());
 }
 
+public static string[] UTM_MEDIUMS=new [] {"sms"};
+
 public static async Task<HttpResponseMessage> Run(HttpRequestMessage req, NextId keyTable, CloudTable tableOut, TraceWriter log)
 {
     log.Info($"C# manually triggered function called with req: {req}");
@@ -43,9 +45,10 @@ public static async Task<HttpResponseMessage> Run(HttpRequestMessage req, NextId
 
     var result = new List<Result>();
     var url = input.Input;
-    bool tagSource = (input.TagSource.HasValue ? input.TagSource.Value : true);
+    bool tagMediums = input.TagMediums.HasValue ? input.TagMediums.Value : true;
+    bool tagSource = (input.TagSource.HasValue ? input.TagSource.Value : true) || tagMediums;
 
-    log.Info($"URL: {url} Tag Source? {tagSource}");
+    log.Info($"URL: {url} Tag Source? {tagSource} Tag Mediums? {tagMediums}");
     
     if (String.IsNullOrWhiteSpace(url))
     {
@@ -71,22 +74,47 @@ public static async Task<HttpResponseMessage> Run(HttpRequestMessage req, NextId
         url = $"{url}?utm_source={UTM_SOURCE}";
     }
 
-    var shortUrl = Encode(keyTable.Id++);
-    log.Info($"Short URL for {url} is {shortUrl}");
-    var newUrl = new ShortUrl 
+    if (tagMediums) 
     {
-        PartitionKey = $"{shortUrl.First()}",
-        RowKey = $"{shortUrl}",
-        Url = url
-    };
-    var singleAdd = TableOperation.Insert(newUrl);
-    await tableOut.ExecuteAsync(singleAdd);
-    result.Add(new Result 
+        foreach(var medium in UTM_MEDIUMS)
+        {
+            var mediumUrl = $"{url}&utm_medium={medium}";
+            var shortUrl = Encode(keyTable.Id++);
+            log.Info($"Short URL for {mediumUrl} is {shortUrl}");
+            var newUrl = new ShortUrl 
+            {
+                PartitionKey = $"{shortUrl.First()}",
+                RowKey = $"{shortUrl}",
+                Medium = medium,
+                Url = mediumUrl
+            };
+            var multiAdd = TableOperation.Insert(newUrl);
+            await tableOut.ExecuteAsync(multiAdd); 
+            result.Add(new Result 
+            { 
+                ShortUrl = $"{SHORTENER_URL}{newUrl.RowKey}",
+                LongUrl = WebUtility.UrlDecode(newUrl.Url)
+            });
+        }
+    }
+    else 
     {
-        ShortUrl = $"{SHORTENER_URL}{newUrl.RowKey}",
-        LongUrl = WebUtility.UrlDecode(newUrl.Url)
-    });
-    
+        var shortUrl = Encode(keyTable.Id++);
+        log.Info($"Short URL for {url} is {shortUrl}");
+        var newUrl = new ShortUrl 
+        {
+            PartitionKey = $"{shortUrl.First()}",
+            RowKey = $"{shortUrl}",
+            Url = url
+        };
+        var singleAdd = TableOperation.Insert(newUrl);
+        await tableOut.ExecuteAsync(singleAdd);
+        result.Add(new Result 
+        {
+            ShortUrl = $"{SHORTENER_URL}{newUrl.RowKey}",
+            LongUrl = WebUtility.UrlDecode(newUrl.Url)
+        }); 
+    }
 
     var operation = TableOperation.Replace(keyTable);
     await tableOut.ExecuteAsync(operation);
