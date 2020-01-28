@@ -8,13 +8,11 @@ public class NextId : TableEntity
 public class ShortUrl : TableEntity
 {
     public string Url { get; set; }
-    public string Medium { get; set; }
 }
 
 public class Request 
 {
     public bool? TagSource { get; set; }
-    public bool? TagMediums { get; set; }
     public string Input { get; set; }
 }
 
